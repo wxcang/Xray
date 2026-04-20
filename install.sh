@@ -101,16 +101,15 @@ install_pkg() {
 download() {
     case $1 in
     core)
-        # 👉 你的 core
-        link=https://raw.githubusercontent.com/wxcang/Xray/main/xray-linux-${is_core_arch}.zip
-        name="Xray Core"
+        # 👉 完全写死（不再拼接架构）
+        link=https://cdn.jsdelivr.net/gh/wxcang/Xray@main/Xray-linux-64.zip
+        name=$is_core_name
         tmpfile=$tmpcore
         is_ok=$is_core_ok
         ;;
     sh)
-        # 👉 你的 code.zip
-        link=https://raw.githubusercontent.com/wxcang/Xray/main/code.zip
-        name="Xray Script"
+        link=https://cdn.jsdelivr.net/gh/wxcang/Xray@main/code.zip
+        name="$is_core_name 脚本"
         tmpfile=$tmpsh
         is_ok=$is_sh_ok
         ;;
@@ -122,7 +121,7 @@ download() {
         ;;
     esac
 
-    msg warn "下载 ${name}"
+    msg warn "下载 ${name} > ${link}"
     if _wget -t 3 -q -c $link -O $tmpfile; then
         mv -f $tmpfile $is_ok
     else
