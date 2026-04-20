@@ -13,6 +13,7 @@ none='\e[0m'
 _red() { echo -e ${red}$@${none}; }
 _green() { echo -e ${green}$@${none}; }
 _yellow() { echo -e ${yellow}$@${none}; }
+_red_bg() { echo -e "\e[41m$@${none}"; }
 
 is_err=$(_red_bg 错误!)
 is_warn=$(_red_bg 警告!)
@@ -25,10 +26,10 @@ warn() {
     echo -e "\n$is_warn $@\n"
 }
 
-# root
+# root check
 [[ $EUID != 0 ]] && err "当前非 ${yellow}ROOT用户.${none}"
 
-# systemd check
+# system check
 cmd=$(type -P apt-get || type -P yum)
 [[ ! $cmd ]] && err "此脚本仅支持 ${yellow}(Ubuntu or Debian or CentOS)${none}."
 [[ ! $(type -P systemctl) ]] && err "此系统缺少 ${yellow}(systemctl)${none}."
@@ -58,7 +59,6 @@ is_sh_bin=/usr/local/bin/$is_core
 is_sh_dir=$is_core_dir/sh
 is_pkg="wget unzip"
 
-# 临时文件定义
 tmpdir=$(mktemp -u)
 [[ ! $tmpdir ]] && tmpdir=/tmp/tmp-$RANDOM
 tmpcore=$tmpdir/tmpcore
@@ -69,7 +69,6 @@ is_sh_ok=$tmpdir/is_sh_ok
 is_jq_ok=$tmpdir/is_jq_ok
 is_pkg_ok=$tmpdir/is_pkg_ok
 
-# 加载函数
 load() {
     . $is_sh_dir/src/$1
 }
@@ -81,18 +80,18 @@ _wget() {
 
 msg() {
     case $1 in
-        warn) color=$yellow ;;
-        err) color=$red ;;
-        ok) color=$green ;;
+    warn) color=$yellow ;;
+    err) color=$red ;;
+    ok) color=$green ;;
     esac
     echo -e "${color}$(date +'%T')${none}) ${2}"
 }
 
-# --- 核心修改部分：私有下载逻辑 ---
+# ---------- 核心修改：精准定向下载源 ----------
 download() {
     case $1 in
     core)
-        # 1. 指向你的私有库 Release 下载地址
+        # 1. 核心文件：从您的私有仓库下载
         link=https://github.com/wxcang/Xray/releases/latest/download/Xray-linux-64.zip
         [[ $is_core_ver ]] && link="https://github.com/wxcang/Xray/releases/download/${is_core_ver}/Xray-linux-64.zip"
         name=$is_core_name
@@ -100,13 +99,14 @@ download() {
         is_ok=$is_core_ok
         ;;
     sh)
-        # 2. 指向你上传到私有库的 code.zip
+        # 2. 脚本包：从您的私有仓库下载
         link=https://github.com/wxcang/Xray/releases/latest/download/code.zip
         name="$is_core_name 脚本"
         tmpfile=$tmpsh
         is_ok=$is_sh_ok
         ;;
     jq)
+        # 3. jq工具：维持官方地址下载，确保稳定性
         link=https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-$is_jq_arch
         name="jq"
         tmpfile=$tmpjq
@@ -119,7 +119,7 @@ download() {
         mv -f $tmpfile $is_ok
     fi
 }
-# --- 修改结束 ---
+# --------------------------------------------
 
 get_ip() {
     export "$(_wget -4 -qO- https://one.one.one.one/cdn-cgi/trace | grep ip=)" &>/dev/null
@@ -151,10 +151,10 @@ main() {
     echo "........... $is_core_name script by $author .........."
     mkdir -p $tmpdir
     msg warn "开始安装..."
-    
+
     install_pkg $is_pkg &
     [[ ! $(type -P jq) ]] && jq_not_found=1
-    
+
     download core &
     download sh &
     [[ $jq_not_found ]] && download jq &
@@ -162,25 +162,22 @@ main() {
     wait
     check_status
 
-    # 解压与目录创建
     mkdir -p $is_sh_dir $is_core_dir/bin $is_log_dir $is_conf_dir
     unzip -qo $is_sh_ok -d $is_sh_dir
     unzip -qo $is_core_ok -d $is_core_dir/bin
-    
-    # 指令链接与权限
+
     ln -sf $is_sh_dir/$is_core.sh $is_sh_bin
     [[ $jq_not_found ]] && mv -f $is_jq_ok /usr/bin/jq
     chmod +x $is_core_bin $is_sh_bin /usr/bin/jq
     echo "alias $is_core=$is_sh_bin" >>/root/.bashrc
 
-    # 注册服务并生成配置
     load systemd.sh
     install_service $is_core &>/dev/null
-    
+
     load core.sh
     # 默认创建 VLESS + REALITY 协议
     add reality
-    
+
     msg ok "安装完成！"
     exit_and_del_tmpdir ok
 }
