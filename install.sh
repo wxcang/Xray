@@ -2,168 +2,163 @@
 
 author=233boy
 
+# ===== 你的仓库 =====
+MY_REPO="wxcang/Xray"
+
+# colors
 red='\e[31m'
 yellow='\e[33m'
-gray='\e[90m'
 green='\e[92m'
-blue='\e[94m'
-magenta='\e[95m'
-cyan='\e[96m'
 none='\e[0m'
 _red() { echo -e ${red}$@${none}; }
-_blue() { echo -e ${blue}$@${none}; }
-_cyan() { echo -e ${cyan}$@${none}; }
 _green() { echo -e ${green}$@${none}; }
-_yellow() { echo -e ${yellow}$@${none}; }
-_magenta() { echo -e ${magenta}$@${none}; }
-_red_bg() { echo -e "\e[41m$@${none}"; }
 
-is_err=$(_red_bg 错误!)
-is_warn=$(_red_bg 警告!)
+err() {
+    echo -e "\n$(_red 错误!) $@\n" && exit 1
+}
 
-err() { echo -e "\n$is_err $@\n" && exit 1; }
-warn() { echo -e "\n$is_warn $@\n"; }
+warn() {
+    echo -e "\n${yellow}警告!${none} $@\n"
+}
 
-[[ $EUID != 0 ]] && err "当前非 ROOT用户."
+# root check
+[[ $EUID != 0 ]] && err "请使用 ROOT 用户运行"
 
+# pkg manager
 cmd=$(type -P apt-get || type -P yum)
-[[ ! $cmd ]] && err "仅支持 Ubuntu/Debian/CentOS."
+[[ ! $cmd ]] && err "仅支持 Debian/Ubuntu/CentOS"
 
-[[ ! $(type -P systemctl) ]] && err "缺少 systemctl"
+# systemd
+[[ ! $(type -P systemctl) ]] && err "系统缺少 systemd"
 
-is_wget=$(type -P wget)
-
+# 架构（强制限制）
 case $(uname -m) in
 amd64 | x86_64)
-    is_jq_arch=amd64
-    is_core_arch="64"
-    ;;
-*aarch64* | *armv8*)
-    is_jq_arch=arm64
-    is_core_arch="arm64-v8a"
     ;;
 *)
-    err "仅支持64位"
+    err "当前脚本仅支持 x86_64 架构（你已写死文件名）"
     ;;
 esac
 
 is_core=xray
-is_core_name=Xray
 is_core_dir=/etc/$is_core
 is_core_bin=$is_core_dir/bin/$is_core
 is_conf_dir=$is_core_dir/conf
 is_log_dir=/var/log/$is_core
 is_sh_bin=/usr/local/bin/$is_core
 is_sh_dir=$is_core_dir/sh
-is_pkg="wget unzip"
-is_config_json=$is_core_dir/config.json
 
-tmpdir=$(mktemp -u)
-[[ ! $tmpdir ]] && tmpdir=/tmp/tmp-$RANDOM
+tmpdir=$(mktemp -d)
 
-tmpcore=$tmpdir/tmpcore
-tmpsh=$tmpdir/tmpsh
-tmpjq=$tmpdir/tmpjq
-is_core_ok=$tmpdir/coreok
-is_sh_ok=$tmpdir/shok
-is_jq_ok=$tmpdir/jqok
-is_pkg_ok=$tmpdir/pkgok
+tmpcore=$tmpdir/core.zip
+tmpsh=$tmpdir/code.zip
+tmpjq=$tmpdir/jq
 
+# wget
 _wget() {
-    [[ $proxy ]] && export https_proxy=$proxy
-    wget --no-check-certificate $*
+    wget --no-check-certificate "$@"
 }
 
 msg() {
-    case $1 in
-    warn) color=$yellow ;;
-    err) color=$red ;;
-    ok) color=$green ;;
-    esac
-    echo -e "${color}$(date +'%T')${none}) ${2}"
+    echo -e "$(date +'%T')) $1"
 }
 
+# 安装依赖
 install_pkg() {
-    for i in $*; do
-        [[ ! $(type -P $i) ]] && need="$need $i"
-    done
-    if [[ $need ]]; then
-        $cmd install -y $need &>/dev/null
-        [[ $? == 0 ]] && >$is_pkg_ok
-    else
-        >$is_pkg_ok
-    fi
+    msg "安装依赖..."
+    $cmd update -y &>/dev/null
+    $cmd install -y wget unzip curl &>/dev/null || err "依赖安装失败"
 }
 
-########################################
-# ✅ 核心修改就在这里
-########################################
+# 下载（核心已改）
 download() {
     case $1 in
     core)
-        # 👉 完全写死（不再拼接架构）
-        link=https://cdn.jsdelivr.net/gh/wxcang/Xray@main/Xray-linux-64.zip
-        name=$is_core_name
-        tmpfile=$tmpcore
-        is_ok=$is_core_ok
+        link="https://github.com/${MY_REPO}/releases/latest/download/Xray-linux-64.zip"
+        out=$tmpcore
+        name="Xray Core"
         ;;
     sh)
-        link=https://cdn.jsdelivr.net/gh/wxcang/Xray@main/code.zip
-        name="$is_core_name 脚本"
-        tmpfile=$tmpsh
-        is_ok=$is_sh_ok
+        link="https://github.com/${MY_REPO}/releases/latest/download/code.zip"
+        out=$tmpsh
+        name="Xray Script"
         ;;
     jq)
-        link=https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-$is_jq_arch
+        link="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64"
+        out=$tmpjq
         name="jq"
-        tmpfile=$tmpjq
-        is_ok=$is_jq_ok
         ;;
     esac
 
-    msg warn "下载 ${name} > ${link}"
-    if _wget -t 3 -q -c $link -O $tmpfile; then
-        mv -f $tmpfile $is_ok
-    else
-        msg err "下载失败: $link"
-    fi
+    msg "下载 $name"
+    _wget -t 3 -q -c "$link" -O "$out" || err "下载失败: $link"
 }
 
+# 获取IP
 get_ip() {
-    export "$(_wget -4 -qO- https://one.one.one.one/cdn-cgi/trace | grep ip=)" &>/dev/null
+    ip=$(curl -s4 https://api.ip.sb/ip)
+}
+
+# 清理
+cleanup() {
+    rm -rf $tmpdir
 }
 
 main() {
 
-    mkdir -p $tmpdir
+    # 防重复安装
+    [[ -f $is_sh_bin ]] && err "检测到已安装，如需重装请先卸载"
 
-    install_pkg $is_pkg &
+    clear
+    echo "====== Xray 一键安装（自定义源） ======"
 
-    [[ $is_wget ]] && {
-        download core &
-        download sh &
-        download jq &
-        get_ip
-    }
+    install_pkg
 
-    wait
+    # 下载
+    download core
+    download sh
 
-    [[ ! -f $is_core_ok ]] && err "core 下载失败"
-    [[ ! -f $is_sh_ok ]] && err "脚本下载失败"
-    [[ ! -f $is_jq_ok ]] && err "jq 下载失败"
+    if ! type -P jq &>/dev/null; then
+        download jq
+        mv $tmpjq /usr/bin/jq
+        chmod +x /usr/bin/jq
+    fi
 
+    get_ip
+    [[ -z $ip ]] && err "获取IP失败"
+
+    # 创建目录
     mkdir -p $is_sh_dir
-    unzip -qo $is_sh_ok -d $is_sh_dir
-
     mkdir -p $is_core_dir/bin
-    unzip -qo $is_core_ok -d $is_core_dir/bin
-
-    ln -sf $is_sh_dir/$is_core.sh $is_sh_bin
-    chmod +x $is_core_bin $is_sh_bin
-
+    mkdir -p $is_conf_dir
     mkdir -p $is_log_dir
 
-    msg ok "安装完成"
+    # 解压
+    unzip -qo $tmpsh -d $is_sh_dir || err "脚本解压失败"
+    unzip -qo $tmpcore -d $is_core_dir/bin || err "core解压失败"
+
+    # 命令
+    ln -sf $is_sh_dir/xray.sh $is_sh_bin
+    echo "alias xray=$is_sh_bin" >> /root/.bashrc
+
+    chmod +x $is_core_bin
+    chmod +x $is_sh_bin
+
+    # systemd
+    if [[ -f $is_sh_dir/src/systemd.sh ]]; then
+        . $is_sh_dir/src/systemd.sh
+        install_service xray &>/dev/null
+    fi
+
+    # 初始化配置
+    if [[ -f $is_sh_dir/src/core.sh ]]; then
+        . $is_sh_dir/src/core.sh
+        add reality
+    fi
+
+    cleanup
+
+    _green "安装完成！"
 }
 
 main
