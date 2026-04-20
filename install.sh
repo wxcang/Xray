@@ -161,7 +161,7 @@ install_pkg() {
 download() {
     case $1 in
     core)
-        # 修改：写死为您私有库的 Xray-linux-64.zip 下载路径
+        # 这里的链接修改为您私有库的 Xray-linux-64.zip
         link=https://github.com/wxcang/Xray/releases/latest/download/Xray-linux-64.zip
         [[ $is_core_ver ]] && link="https://github.com/wxcang/Xray/releases/download/${is_core_ver}/Xray-linux-64.zip"
         name=$is_core_name
@@ -169,14 +169,13 @@ download() {
         is_ok=$is_core_ok
         ;;
     sh)
-        # 修改：写死为您私有库的 code.zip 下载路径
+        # 这里的链接修改为您私有库的 code.zip
         link=https://github.com/wxcang/Xray/releases/latest/download/code.zip
         name="$is_core_name 脚本"
         tmpfile=$tmpsh
         is_ok=$is_sh_ok
         ;;
     jq)
-        # 保持不变：继续从官方 jqlang 下载
         link=https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-$is_jq_arch
         name="jq"
         tmpfile=$tmpjq
@@ -347,10 +346,11 @@ main() {
         jq_not_found=1
     fi
     # if wget installed. download core, sh, jq, get ip
+    # 修改：删除了 download 命令末尾的 &，改为顺序下载以防止 check_status 抢跑报错
     [[ $is_wget ]] && {
-        [[ ! $is_core_file ]] && download core &
-        [[ ! $local_install ]] && download sh &
-        [[ $jq_not_found ]] && download jq &
+        [[ ! $is_core_file ]] && download core
+        [[ ! $local_install ]] && download sh
+        [[ $jq_not_found ]] && download jq
         get_ip
     }
 
